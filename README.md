@@ -65,6 +65,7 @@ The service automatically updates the status when the configuration file is chan
 
 ### Monitoring the service:
 - set `debug` to `true` on config
+- set `command` to `/usr/bin/logger` for job
 - run command `journalctl -t inotify_watcher -f`
 
 ## License
