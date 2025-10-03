@@ -58,6 +58,9 @@ namespace Inotify {
             case IN_DELETE:
                 return "IN_DELETE";
 
+            case IN_MOVE:
+                return "IN_MOVE";
+
             case IN_MOVE_SELF:
                 return "IN_MOVE_SELF";
 
