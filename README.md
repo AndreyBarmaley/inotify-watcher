@@ -26,8 +26,10 @@
   "jobs": [
     {
       "path": "/var/www/html",
+      "inotify:details": "see man inotify",
       "inotify": [ "IN_CLOSE_WRITE", "IN_CREATE", "IN_DELETE" ],
       "recursive": false,
+      "owner:details": "the command will run under this user if the service has admin rights",
       "owner": "user1",
       "command": "/usr/bin/logger"
     },
