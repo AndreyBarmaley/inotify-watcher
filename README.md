@@ -28,11 +28,13 @@
       "path": "/var/www/html",
       "inotify": [ "IN_CLOSE_WRITE", "IN_CREATE", "IN_DELETE" ],
       "recursive": false,
-      "command": "/usr/bin/true"
+      "owner": "user1",
+      "command": "/usr/bin/logger"
     },
     {
       "path": "/etc/myapp/config.ini",
-      "command": "/usr/bin/true"
+      "owner": "user2",
+      "command": "/usr/bin/logger"
     }
   ]
 }
