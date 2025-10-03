@@ -1,6 +1,6 @@
-# File Watcher Service
+# Inotify Watcher Service
 
-**File Watcher Service** is a lightweight daemon written in **C++** using the **Boost.Asio** library, designed to monitor filesystem changes through the **Linux inotify** mechanism. When file changes are detected (creation, modification, deletion), the service executes user-defined commands specified in a configuration file.
+**Inotify Watcher Service** is a lightweight daemon written in **C++** using the **Boost.Asio** library, designed to monitor filesystem changes through the **Linux inotify** mechanism. When file changes are detected (creation, modification, deletion), the service executes user-defined commands specified in a configuration file.
 
 ## Key Features
 
