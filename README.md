@@ -54,6 +54,8 @@ make
 ./inotify_watcher --config /path/to/config.json
 ```
 
+The service automatically updates the status when the configuration file is changed.
+
 #### Default config path:
 - from system `/etc/inotify_watcher/config.json`
 - from environment `INOTIFY_SERVICE_CONF`
