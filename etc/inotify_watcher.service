@@ -1,0 +1,10 @@
+[Unit]
+Description=Inotify Watcher Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/inotify_watcher
+
+[Install]
+WantedBy=multi-user.target
