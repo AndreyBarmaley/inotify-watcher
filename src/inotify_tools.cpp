@@ -31,6 +31,9 @@ namespace Inotify {
 
     const char* maskToName(uint32_t mask) {
         switch(mask) {
+            case IN_ALL_EVENTS:
+                return "IN_ALL_EVENTS";
+
             case IN_OPEN:
                 return "IN_OPEN";
 
