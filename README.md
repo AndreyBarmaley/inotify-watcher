@@ -70,6 +70,51 @@ The service automatically updates the status when the configuration file is chan
 - set `command` to `/usr/bin/logger` for job
 - run command `journalctl -t inotify_watcher -f`
 
+```log
+inotify_watcher[1093675]: target: /etc/inotify_watcher
+inotify_watcher[1093675]: found config: /etc/inotify_watcher/config.json
+inotify_watcher[1093675]: readConfig: success
+inotify_watcher[1093675]: parseJobs: job skipped, path not found: /var/tmp/123
+inotify_watcher[1093675]: target: /var/tmp
+inotify_watcher[1093675]: AddNotify: add job, path: /var/tmp, name: dracut.log
+inotify_watcher[1093675]: inOpenEvent: path: /var/tmp, name:
+inotify_watcher[1093675]: inOpenEvent: run cmd: /usr/bin/logger, args: [IN_OPEN,/var/tmp]
+inotify_watcher[1093675]: inAccessEvent: path: /var/tmp, name:
+inotify_watcher[1093675]: inAccessEvent: run cmd: /usr/bin/logger, args: [IN_ACCESS,/var/tmp]
+inotify_watcher[1093675]: inAccessEvent: path: /var/tmp, name:
+inotify_watcher[1093675]: inAccessEvent: run cmd: /usr/bin/logger, args: [IN_ACCESS,/var/tmp]
+inotify_watcher[1093675]: inAccessEvent: path: /var/tmp, name:
+inotify_watcher[1093675]: inAccessEvent: run cmd: /usr/bin/logger, args: [IN_ACCESS,/var/tmp]
+inotify_watcher[1093675]: inCloseEvent: path: /var/tmp, name: , write: false
+inotify_watcher[1093675]: inOpenEvent: path: /var/tmp, name: dracut.log
+inotify_watcher[1093675]: inOpenEvent: run cmd: /usr/bin/logger, args: [IN_OPEN,/var/tmp/dracut.log]
+inotify_watcher[1093675]: inAccessEvent: path: /var/tmp, name: dracut.log
+inotify_watcher[1093675]: inAccessEvent: run cmd: /usr/bin/logger, args: [IN_ACCESS,/var/tmp/dracut.log]
+inotify_watcher[1093675]: inAccessEvent: path: /var/tmp, name: dracut.log
+inotify_watcher[1093675]: inAccessEvent: run cmd: /usr/bin/logger, args: [IN_ACCESS,/var/tmp/dracut.log]
+inotify_watcher[1093675]: inCloseEvent: path: /var/tmp, name: dracut.log, write: false
+inotify_watcher[1093675]: inCloseEvent: run cmd: /usr/bin/logger, args: [IN_CLOSE_NOWRITE,/var/tmp/dracut.log]
+inotify_watcher[1093675]: inOpenEvent: path: /var/tmp, name: dracut.log
+inotify_watcher[1093675]: inOpenEvent: run cmd: /usr/bin/logger, args: [IN_OPEN,/var/tmp/dracut.log]
+inotify_watcher[1093675]: inCloseEvent: path: /var/tmp, name: dracut.log, write: false
+inotify_watcher[1093675]: inCloseEvent: run cmd: /usr/bin/logger, args: [IN_CLOSE_NOWRITE,/var/tmp/dracut.log]
+inotify_watcher[1093675]: inOpenEvent: path: /var/tmp, name: dracut.log
+inotify_watcher[1093675]: inOpenEvent: run cmd: /usr/bin/logger, args: [IN_OPEN,/var/tmp/dracut.log]
+inotify_watcher[1093675]: inAccessEvent: path: /var/tmp, name: dracut.log
+inotify_watcher[1093675]: inAccessEvent: run cmd: /usr/bin/logger, args: [IN_ACCESS,/var/tmp/dracut.log]
+inotify_watcher[1093675]: inCloseEvent: path: /var/tmp, name: dracut.log, write: false
+inotify_watcher[1093675]: inCloseEvent: run cmd: /usr/bin/logger, args: [IN_CLOSE_NOWRITE,/var/tmp/dracut.log]
+inotify_watcher[1093675]: inCreateEvent: path: /var/tmp, name: .#dracut.log
+inotify_watcher[1093675]: inCreateEvent: run cmd: /usr/bin/logger, args: [IN_CREATE,/var/tmp/.#dracut.log]
+inotify_watcher[1093675]: inDeleteEvent: path: /var/tmp, name: .#dracut.log, self: false
+inotify_watcher[1093675]: inDeleteEvent: run cmd: /usr/bin/logger, args: [IN_DELETE,/var/tmp/.#dracut.log]
+inotify_watcher[1093675]: inOpenEvent: path: /var/tmp, name:
+inotify_watcher[1093675]: inOpenEvent: run cmd: /usr/bin/logger, args: [IN_OPEN,/var/tmp]
+inotify_watcher[1093675]: inAccessEvent: path: /var/tmp, name:
+inotify_watcher[1093675]: inAccessEvent: run cmd: /usr/bin/logger, args: [IN_ACCESS,/var/tmp]
+inotify_watcher[1093675]: inCloseEvent: path: /var/tmp, name: , write: false
+```
+
 ## License
 
 MIT License. See [LICENSE](LICENSE) file for details.
