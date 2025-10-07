@@ -21,6 +21,7 @@
 #include <sys/types.h>
 #include <sys/inotify.h>
 
+#include <sstream>
 #include <iostream>
 #include "inotify_tools.h"
 
@@ -119,8 +120,9 @@ namespace System {
             if(entry.is_directory() && recursive) {
                 auto subdir = readDirSub(std::filesystem::absolute(entry.path()), recursive, filter);
 
-                if(! subdir.empty())
+                if(! subdir.empty()) {
                     res.splice_after(res.begin(), subdir);
+                }
             }
         }
 
@@ -205,4 +207,64 @@ namespace System {
         execv(cmd.c_str(), (char* const*) argv.data());
         std::exit(-1);
     }
+}
+
+namespace String {
+    std::string escaped(std::string_view str, bool quote) {
+        std::ostringstream os;
+
+        // start quote
+        if(quote) {
+            os << "\"";
+        }
+
+        // variants: \\, \", \/, \t, \n, \r, \f, \b
+        for(const auto & ch : str) {
+            switch(ch) {
+                case '\\':
+                    os << "\\\\";
+                    break;
+
+                case '"':
+                    os << "\\\"";
+                    break;
+
+                case '/':
+                    os << "\\/";
+                    break;
+
+                case '\t':
+                    os << "\\t";
+                    break;
+
+                case '\n':
+                    os << "\\n";
+                    break;
+
+                case '\r':
+                    os << "\\r";
+                    break;
+
+                case '\f':
+                    os << "\\f";
+                    break;
+
+                case '\b':
+                    os << "\\b";
+                    break;
+
+                default:
+                    os << ch;
+                    break;
+            }
+        }
+
+        // end quote
+        if(quote) {
+            os << "\"";
+        }
+
+        return os.str();
+    }
+
 }

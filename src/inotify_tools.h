@@ -28,4 +28,8 @@ namespace System {
     void runCommand(std::string cmd, std::list<std::string> args, std::string owner);
 }
 
+namespace String {
+    std::string escaped(std::string_view str, bool quote);
+}
+
 #endif
