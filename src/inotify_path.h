@@ -22,6 +22,8 @@
 #include <stdexcept>
 #include <filesystem>
 
+#include "spdlog/spdlog.h"
+
 namespace Inotify {
     class Path : boost::noncopyable {
         int fd_ = -1;
@@ -29,12 +31,14 @@ namespace Inotify {
 
         boost::asio::io_context & ioc_;
         boost::asio::posix::stream_descriptor sd_;
-        boost::asio::strand<boost::asio::io_context::executor_type> strand_;
+	boost::asio::strand<boost::asio::io_context::executor_type> strand_;
 
         std::filesystem::path path_;
         std::array<char, 1024> buf_;
 
       protected:
+	std::shared_ptr<spdlog::logger> log;
+
         void cancelAsync(void);
         bool parseEvents(const char* beg, const char* end);
         void readNotify(const boost::system::error_code & ec, size_t recv);
