@@ -15,6 +15,7 @@
 #include <memory>
 #include <fstream>
 #include <iostream>
+#include <functional>
 
 #include "spdlog/spdlog.h"
 #include "spdlog/sinks/systemd_sink.h"
@@ -24,6 +25,7 @@
 
 using namespace boost;
 using InotifyPathPtr = std::unique_ptr<Inotify::Path>;
+using JobContinueEventCb = std::function<void(const json::object &, uint32_t, const std::filesystem::path &)>;
 
 namespace Inotify {
     uint32_t jsonArrayToEvents(const json::array & ar) {
@@ -38,57 +40,43 @@ namespace Inotify {
 }
 
 class InotifyJob : public Inotify::Path {
-    asio::io_context & ioc_;
     json::object job_;
-
-  protected:
-    void continueEvent(const char* func, uint32_t event, const std::filesystem::path & path) {
-        if(! job_.contains("command")) {
-            return;
-        }
-
-        auto cmd = json::value_to<std::string>(job_["command"]);
-        auto owner = job_.contains("owner") ? json::value_to<std::string>(job_["owner"]) : std::string{};
-        auto escaped = job.contains("escaped") ? json::value_to<bool>(job.at("escaped")) : false;
-        std::list<std::string> args = { std::string(Inotify::maskToName(event)), String::quoted(path.native(), escaped) };
-
-        spdlog::debug("{}: run cmd: {}, args: [{}]", func, cmd, boost::algorithm::join(args, ","));
-        asio::post(ioc_, std::bind(&System::runCommand, std::move(cmd), std::move(args), std::move(owner)));
-    }
+    JobContinueEventCb continueEventCb_;
 
   public:
-    InotifyJob(boost::asio::io_context & ioc, const std::filesystem::path & path, const json::object & json, uint32_t events)
-        : Inotify::Path(ioc, path, events), ioc_(ioc), job_(json) {
+    InotifyJob(boost::asio::io_context & ioc, const std::filesystem::path & path,
+        const json::object & json, uint32_t events, const JobContinueEventCb & func)
+        : Inotify::Path(ioc, path, events), job_(json), continueEventCb_(func) {
     }
 
     void inOpenEvent(const std::filesystem::path & path, std::string name) override {
         spdlog::debug("{}: path: {}, name: {}", __FUNCTION__, path.native(), name);
-        continueEvent(__FUNCTION__, IN_OPEN, name.size() ? path / name : path);
+        continueEventCb_(job_, IN_OPEN, name.size() ? path / name : path);
     }
 
     void inCreateEvent(const std::filesystem::path & path, std::string name) override {
         spdlog::debug("{}: path: {}, name: {}", __FUNCTION__, path.native(), name);
-        continueEvent(__FUNCTION__, IN_CREATE, name.size() ? path / name : path);
+        continueEventCb_(job_, IN_CREATE, name.size() ? path / name : path);
     }
 
     void inAccessEvent(const std::filesystem::path & path, std::string name) override {
         spdlog::debug("{}: path: {}, name: {}", __FUNCTION__, path.native(), name);
-        continueEvent(__FUNCTION__, IN_ACCESS, name.size() ? path / name : path);
+        continueEventCb_(job_, IN_ACCESS, name.size() ? path / name : path);
     }
 
     void inModifyEvent(const std::filesystem::path & path, std::string name) override {
         spdlog::debug("{}: path: {}, name: {}", __FUNCTION__, path.native(), name);
-        continueEvent(__FUNCTION__, IN_MODIFY, name.size() ? path / name : path);
+        continueEventCb_(job_, IN_MODIFY, name.size() ? path / name : path);
     }
 
     void inAttribEvent(const std::filesystem::path & path, std::string name) override {
         spdlog::debug("{}: path: {}, name: {}", __FUNCTION__, path.native(), name);
-        continueEvent(__FUNCTION__, IN_ATTRIB, name.size() ? path / name : path);
+        continueEventCb_(job_, IN_ATTRIB, name.size() ? path / name : path);
     }
 
     void inMoveEvent(const std::filesystem::path & path, std::string name, bool self) override {
         spdlog::debug("{}: path: {}, name: {}, self: {}", __FUNCTION__, path.native(), name, self);
-        continueEvent(__FUNCTION__, self ? IN_MOVE_SELF : IN_MOVE, name.size() ? path / name : path);
+        continueEventCb_(job_, self ? IN_MOVE_SELF : IN_MOVE, name.size() ? path / name : path);
     }
 
     void inCloseEvent(const std::filesystem::path & path, std::string name, bool write) override {
@@ -100,7 +88,7 @@ class InotifyJob : public Inotify::Path {
             }
         }
 
-        continueEvent(__FUNCTION__, write ? IN_CLOSE_WRITE : IN_CLOSE_NOWRITE, name.size() ? path / name : path);
+        continueEventCb_(job_, write ? IN_CLOSE_WRITE : IN_CLOSE_NOWRITE, name.size() ? path / name : path);
     }
 
     void inDeleteEvent(const std::filesystem::path & path, std::string name, bool self) override {
@@ -109,7 +97,7 @@ class InotifyJob : public Inotify::Path {
             cancelAsync();
         } else {
             spdlog::debug("{}: path: {}, name: {}, self: {}", __FUNCTION__, path.native(), name, self);
-            continueEvent(__FUNCTION__, IN_DELETE, name.size() ? path / name : path);
+            continueEventCb_(job_, IN_DELETE, name.size() ? path / name : path);
         }
     }
 };
@@ -122,6 +110,20 @@ class ServiceConfig : public Inotify::Path {
     std::list<InotifyPathPtr> jobs_;
 
   protected:
+    void jobContinueEvent(const json::object & job, uint32_t event, const std::filesystem::path & path) const {
+        if(! job.contains("command")) {
+            return;
+        }
+
+        auto cmd = json::value_to<std::string>(job.at("command"));
+        auto owner = job.contains("owner") ? json::value_to<std::string>(job.at("owner")) : std::string{};
+        auto escaped = job.contains("escaped") ? json::value_to<bool>(job.at("escaped")) : false;
+        std::list<std::string> args = { std::string(Inotify::maskToName(event)), String::quoted(path.native(), escaped) };
+
+        spdlog::debug("{}: run cmd: {}, args: [{}]", __FUNCTION__, cmd, boost::algorithm::join(args, ","));
+        asio::post(ioc_, std::bind(&System::runCommand, std::move(cmd), std::move(args), std::move(owner)));
+    }
+
     void readConfig(const std::filesystem::path & path) {
         std::ifstream ifs{path};
         system::error_code ec;
@@ -174,14 +176,17 @@ class ServiceConfig : public Inotify::Path {
                 events = Inotify::jsonArrayToEvents(job["inotify"].as_array());
             }
 
+            auto jobContinueEventCb = std::bind(&ServiceConfig::jobContinueEvent, this,
+                        std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
+
             if(std::filesystem::is_regular_file(path)) {
 
                 if(events == events_base) {
                     job["name"] = path.filename().native();
-                    jobs_.emplace_back(std::make_unique<InotifyJob>(ioc_, path.parent_path(), job, events));
+                    jobs_.emplace_back(std::make_unique<InotifyJob>(ioc_, path.parent_path(), job, events, jobContinueEventCb));
                     spdlog::info("{}: add job, path: {}, name: {}", "AddNotify", path.parent_path().native(), path.filename().native());
                 } else {
-                    jobs_.emplace_back(std::make_unique<InotifyJob>(ioc_, path, job, events));
+                    jobs_.emplace_back(std::make_unique<InotifyJob>(ioc_, path, job, events, jobContinueEventCb));
                     spdlog::info("{}: add job, path: {}", "AddNotify", path.native());
                 }
 
@@ -191,11 +196,11 @@ class ServiceConfig : public Inotify::Path {
                 if(recurse) {
                     auto dirs = System::readDir(path, recurse, ReadDirFilter::Dir);
                     for(const auto & dir : dirs) {
-                        jobs_.emplace_back(std::make_unique<InotifyJob>(ioc_, dir, job, events));
+                        jobs_.emplace_back(std::make_unique<InotifyJob>(ioc_, dir, job, events, jobContinueEventCb));
                         spdlog::info("{}: add job, path: {}", "AddNotify", dir);
                     }
                 } else {
-                    jobs_.emplace_back(std::make_unique<InotifyJob>(ioc_, path, job, events));
+                    jobs_.emplace_back(std::make_unique<InotifyJob>(ioc_, path, job, events, jobContinueEventCb));
                     spdlog::info("{}: add job, path: {}", "AddNotify", path.native());
                 }
             } else {
