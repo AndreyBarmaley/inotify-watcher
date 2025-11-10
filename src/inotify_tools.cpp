@@ -21,6 +21,7 @@
 #include <sys/types.h>
 #include <sys/inotify.h>
 
+#include <iomanip>
 #include <sstream>
 #include <iostream>
 #include "inotify_tools.h"
@@ -210,13 +211,16 @@ namespace System {
 }
 
 namespace String {
-    std::string escaped(std::string_view str, bool quote) {
+    std::string quoted(std::string_view str, bool escaped) {
         std::ostringstream os;
 
-        // start quote
-        if(quote) {
-            os << "\"";
+        if(! escaped) {
+            os << std::quoted(str);
+            return os.str();
         }
+
+        // start quote
+        os << "\"";
 
         // variants: \\, \", \/, \t, \n, \r, \f, \b
         for(const auto & ch : str) {
@@ -260,10 +264,7 @@ namespace String {
         }
 
         // end quote
-        if(quote) {
-            os << "\"";
-        }
-
+        os << "\"";
         return os.str();
     }
 

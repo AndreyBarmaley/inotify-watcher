@@ -49,7 +49,8 @@ class InotifyJob : public Inotify::Path {
 
         auto cmd = json::value_to<std::string>(job_["command"]);
         auto owner = job_.contains("owner") ? json::value_to<std::string>(job_["owner"]) : std::string{};
-        std::list<std::string> args = { std::string(Inotify::maskToName(event)), String::escaped(path.native(), true) };
+        auto escaped = job.contains("escaped") ? json::value_to<bool>(job.at("escaped")) : false;
+        std::list<std::string> args = { std::string(Inotify::maskToName(event)), String::quoted(path.native(), escaped) };
 
         spdlog::debug("{}: run cmd: {}, args: [{}]", func, cmd, boost::algorithm::join(args, ","));
         asio::post(ioc_, std::bind(&System::runCommand, std::move(cmd), std::move(args), std::move(owner)));

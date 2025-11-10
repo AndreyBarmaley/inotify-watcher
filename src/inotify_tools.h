@@ -29,7 +29,7 @@ namespace System {
 }
 
 namespace String {
-    std::string escaped(std::string_view str, bool quote);
+    std::string quoted(std::string_view str, bool escaped);
 }
 
 #endif
