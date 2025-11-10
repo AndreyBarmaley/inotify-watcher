@@ -5,6 +5,7 @@ After=network.target
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/inotify_watcher
+TimeoutStopSec=1
 
 [Install]
 WantedBy=multi-user.target

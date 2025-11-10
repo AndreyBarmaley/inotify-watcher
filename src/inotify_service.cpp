@@ -18,6 +18,8 @@
 #include <iostream>
 #include <functional>
 
+#include <systemd/sd-daemon.h>
+
 #include "spdlog/spdlog.h"
 #include "spdlog/sinks/systemd_sink.h"
 
@@ -339,10 +341,13 @@ int main(int argc, char** argv) {
 
     try {
         auto app = std::make_unique<ServiceConfig>(ctx, path);
+        sd_notify(0, "READY=1");
         ctx.run();
+        spdlog::info("service stopped");
     } catch(const std::exception & err) {
         std::cerr << "exception: " << err.what() << std::endl;
     }
 
+    sd_notify(0, "STOPPING=1");
     return 0;
 }
