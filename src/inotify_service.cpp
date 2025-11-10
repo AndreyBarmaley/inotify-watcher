@@ -144,14 +144,17 @@ class ServiceConfig : public Inotify::Path {
             return;
         }
 
-        auto cmd = json::value_to<std::string>(job_conf.at("command"));
-        auto owner = job_conf.contains("owner") ? json::value_to<std::string>(job_conf.at("owner")) : std::string{};
-        auto escaped = job_conf.contains("escaped") ? json::value_to<bool>(job_conf.at("escaped")) : false;
-        bool recurse = job_conf.contains("recursive") ? json::value_to<bool>(job_conf.at("recursive")) : false;
-        std::list<std::string> args = { std::string(Inotify::maskToName(event)), String::quoted(path.native(), escaped) };
+        if( Inotify::jobToEvents(job_conf) & event ) {
+            auto cmd = json::value_to<std::string>(job_conf.at("command"));
+            auto owner = job_conf.contains("owner") ? json::value_to<std::string>(job_conf.at("owner")) : std::string{};
+            auto escaped = job_conf.contains("escaped") ? json::value_to<bool>(job_conf.at("escaped")) : false;
+            std::list<std::string> args = { std::string(Inotify::maskToName(event)), String::quoted(path.native(), escaped) };
 
-        spdlog::debug("{}: run cmd: {}, args: [{}]", __FUNCTION__, cmd, boost::algorithm::join(args, ","));
-        asio::post(ioc_, std::bind(&System::runCommand, std::move(cmd), std::move(args), std::move(owner)));
+            spdlog::debug("{}: run cmd: {}, args: [{}]", __FUNCTION__, cmd, boost::algorithm::join(args, ","));
+            asio::post(ioc_, std::bind(&System::runCommand, std::move(cmd), std::move(args), std::move(owner)));
+        }
+
+        bool recurse = job_conf.contains("recursive") ? json::value_to<bool>(job_conf.at("recursive")) : false;
 
         if(IN_CREATE == event && std::filesystem::is_directory(path) && recurse) {
             auto new_conf = job_conf;
