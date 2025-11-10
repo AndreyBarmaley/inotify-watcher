@@ -62,6 +62,10 @@ class InotifyJob : public Inotify::Path {
         : Inotify::Path(ioc, path, events), job_(json), continueEventCb_(func) {
     }
 
+    const json::object & getConf(void) const {
+        return job_;
+    }
+
     void inOpenEvent(const std::filesystem::path & path, std::string name) override {
         spdlog::debug("{}: path: {}, name: {}", __FUNCTION__, path.native(), name);
         continueEventCb_(job_, IN_OPEN, name.size() ? path / name : path);
@@ -119,11 +123,12 @@ class InotifyJob : public Inotify::Path {
 
 class ServiceConfig : public Inotify::Path {
     asio::io_context & ioc_;
+    asio::signal_set signals_;
     json::object conf_;
 
     const std::filesystem::path filename_;
 
-    std::mutex lock_;
+    mutable std::mutex lock_;
     std::list<InotifyPathPtr> jobs_;
 
   protected:
@@ -156,7 +161,7 @@ class ServiceConfig : public Inotify::Path {
                         std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
 
             std::scoped_lock guard{ lock_ };
-            jobs_.emplace_back(std::make_unique<InotifyJob>(ioc_, path, new_conf, Inotify::jobToEvents(new_conf), jobContinueEventCb));
+            jobs_.emplace_back(std::make_unique<InotifyJob>(ioc_, path, std::move(new_conf), Inotify::jobToEvents(new_conf), jobContinueEventCb));
             spdlog::info("{}: add job, path: {}", "AddNotify", path.native());
         }
     }
@@ -244,9 +249,21 @@ class ServiceConfig : public Inotify::Path {
 
   public:
     ServiceConfig(boost::asio::io_context & ioc, const std::filesystem::path & path)
-        : Inotify::Path(ioc, path.parent_path(), IN_CLOSE_WRITE), ioc_(ioc), filename_(path.filename()) {
+        : Inotify::Path(ioc, path.parent_path(), IN_CLOSE_WRITE), ioc_(ioc), signals_(ioc), filename_(path.filename()) {
         spdlog::info("found config: {}", path.native());
         readConfig(path);
+
+        signals_.add(SIGINT);
+        signals_.add(SIGTERM);
+        signals_.add(SIGUSR1);
+
+        signals_.async_wait([this](const system::error_code & ec, int signal) {
+            if(signal == SIGINT || signal == SIGTERM) {
+                this->ioc_.stop();
+            } else {
+                this->status();
+            }
+        });
     }
 
     void inCloseEvent(const std::filesystem::path & path, std::string name, bool write) override {
@@ -260,6 +277,23 @@ class ServiceConfig : public Inotify::Path {
         if(self) {
             spdlog::warn("{}: delete self event, path: {}", __FUNCTION__, path.c_str());
             cancelAsync();
+        }
+    }
+
+    void status(void) const {
+        std::scoped_lock guard{ lock_ };
+        spdlog::info("{}: jobs count: {}", __FUNCTION__, jobs_.size());
+
+        for(const auto & job: jobs_) {
+            if(auto ptr = dynamic_cast<InotifyJob*>(job.get())) {
+                auto & conf = ptr->getConf();
+                auto path = json::value_to<std::string>(conf.at("path"));
+                auto cmd = json::value_to<std::string>(conf.at("command"));
+                //auto owner = conf.contains("owner") ? json::value_to<std::string>(conf.at("owner")) : std::string{};
+                //auto escaped = conf.contains("escaped") ? json::value_to<bool>(conf.at("escaped")) : false;
+                //bool recurse = conf.contains("recursive") ? json::value_to<bool>(conf.at("recursive")) : false;
+                spdlog::info("{}: job path: {}, cmd: {}", __FUNCTION__, path, cmd);
+            }
         }
     }
 };
@@ -299,11 +333,6 @@ int main(int argc, char** argv) {
     spdlog::set_level(spdlog::level::info);
 
     asio::io_context ctx{4};
-    asio::signal_set signals(ctx, SIGINT, SIGTERM);
-
-    signals.async_wait([&](const system::error_code & ec, int signal) {
-        ctx.stop();
-    });
 
     try {
         auto app = std::make_unique<ServiceConfig>(ctx, path);
