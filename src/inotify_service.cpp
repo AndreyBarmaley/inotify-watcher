@@ -146,13 +146,15 @@ class ServiceConfig : public Inotify::Path {
             return;
         }
 
+        spdlog::debug("{}: event: {}", __FUNCTION__, Inotify::maskToName(event));
+
         if( Inotify::jobToEvents(job_conf) & event ) {
             auto cmd = json::value_to<std::string>(job_conf.at("command"));
             auto owner = job_conf.contains("owner") ? json::value_to<std::string>(job_conf.at("owner")) : std::string{};
             auto escaped = job_conf.contains("escaped") ? json::value_to<bool>(job_conf.at("escaped")) : false;
             std::list<std::string> args = { std::string(Inotify::maskToName(event)), String::quoted(path.native(), escaped) };
 
-            spdlog::debug("{}: run cmd: {}, args: [{}]", __FUNCTION__, cmd, boost::algorithm::join(args, ","));
+            spdlog::info("{}: run cmd: {}, args: [{}]", __FUNCTION__, cmd, boost::algorithm::join(args, ","));
             asio::post(ioc_, std::bind(&System::runCommand, std::move(cmd), std::move(args), std::move(owner)));
         }
 
