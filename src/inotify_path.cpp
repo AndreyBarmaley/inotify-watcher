@@ -110,7 +110,7 @@ namespace Inotify {
     };
 
     Path::Path(asio::io_context & ioc, const std::filesystem::path & path, uint32_t events)
-        : ioc_(ioc), sd_(ioc), strand_(asio::make_strand(ioc)), path_(path) {
+        : sd_(ioc), strand_(asio::make_strand(ioc)), path_(path), ioc_(ioc) {
         if(! std::filesystem::exists(path_)) {
             spdlog::error("path not exists: {}", path_.c_str());
             throw std::runtime_error(__FUNCTION__);

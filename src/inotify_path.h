@@ -27,7 +27,6 @@ namespace Inotify {
         int fd_ = -1;
         int wd_ = -1;
 
-        boost::asio::io_context & ioc_;
         boost::asio::posix::stream_descriptor sd_;
         boost::asio::strand<boost::asio::io_context::executor_type> strand_;
 
@@ -35,6 +34,8 @@ namespace Inotify {
         std::array<char, 1024> buf_;
 
       protected:
+        boost::asio::io_context & ioc_;
+
         void cancelAsync(void);
         bool parseEvents(const char* beg, const char* end);
         void readNotify(const boost::system::error_code & ec, size_t recv);
@@ -51,6 +52,8 @@ namespace Inotify {
         virtual void inMoveEvent(const std::filesystem::path &, std::string, bool self) {}
         virtual void inCreateEvent(const std::filesystem::path &, std::string) {}
         virtual void inDeleteEvent(const std::filesystem::path &, std::string, bool self) {}
+        
+        inline bool isPath(const std::filesystem::path & path) const { return path == path_; }
     };
 }
 
