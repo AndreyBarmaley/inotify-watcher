@@ -53,7 +53,8 @@ namespace Inotify {
         virtual void inCreateEvent(const std::filesystem::path &, std::string) {}
         virtual void inDeleteEvent(const std::filesystem::path &, std::string, bool self) {}
         
-        inline bool isPath(const std::filesystem::path & path) const { return path == path_; }
+        const std::filesystem::path & path(void) const { return path_; }
+        uint64_t job_id(void) const { return reinterpret_cast<uint64_t>(this); }
     };
 }
 

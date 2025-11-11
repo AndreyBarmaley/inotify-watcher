@@ -64,6 +64,9 @@ The service automatically updates the status when the configuration file is chan
 - from system `/etc/inotify_watcher/config.json`
 - from environment `INOTIFY_SERVICE_CONF`
 - from cmd arg `--config /path_to/config.json`
+#### Default jobs:
+- from system config `/etc/inotify_watcher/config.json`
+- from system dir `/etc/inotify_watcher/jobs.d` (json object files only)
 
 ### Monitoring the service:
 - set `debug` to `true` on config

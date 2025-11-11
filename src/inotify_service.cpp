@@ -28,7 +28,9 @@
 
 using namespace boost;
 using InotifyPathPtr = std::unique_ptr<Inotify::Path>;
-using JobContinueEventCb = std::function<void(const json::object &, uint32_t, const std::filesystem::path &)>;
+using ConfFileModifyEventCb = std::function<void(const std::filesystem::path &)>;
+using ConfDirModifyEventCb = std::function<void(const std::filesystem::path &, uint32_t, uint64_t)>;
+using JobContinueEventCb = std::function<void(const std::filesystem::path &, uint32_t, const json::object &, uint64_t)>;
 
 namespace Inotify {
     uint32_t jsonArrayToEvents(const json::array & ar) {
@@ -60,8 +62,8 @@ class InotifyJob : public Inotify::Path {
 
   public:
     InotifyJob(boost::asio::io_context & ioc, const std::filesystem::path & path,
-        const json::object & json, uint32_t events, const JobContinueEventCb & func)
-        : Inotify::Path(ioc, path, events), job_(json), continueEventCb_(func) {
+        const json::object & json, uint32_t events, JobContinueEventCb && func)
+        : Inotify::Path(ioc, path, (events | IN_DELETE_SELF)), job_(json), continueEventCb_(std::move(func)) {
     }
 
     const json::object & getConf(void) const {
@@ -70,32 +72,32 @@ class InotifyJob : public Inotify::Path {
 
     void inOpenEvent(const std::filesystem::path & path, std::string name) override {
         spdlog::debug("{}: path: {}, name: {}", __FUNCTION__, path.native(), name);
-        continueEventCb_(job_, IN_OPEN, name.size() ? path / name : path);
+        continueEventCb_(name.size() ? path / name : path, IN_OPEN, job_, job_id());
     }
 
     void inCreateEvent(const std::filesystem::path & path, std::string name) override {
         spdlog::debug("{}: path: {}, name: {}", __FUNCTION__, path.native(), name);
-        continueEventCb_(job_, IN_CREATE, name.size() ? path / name : path);
+        continueEventCb_(name.size() ? path / name : path, IN_CREATE, job_, job_id());
     }
 
     void inAccessEvent(const std::filesystem::path & path, std::string name) override {
         spdlog::debug("{}: path: {}, name: {}", __FUNCTION__, path.native(), name);
-        continueEventCb_(job_, IN_ACCESS, name.size() ? path / name : path);
+        continueEventCb_(name.size() ? path / name : path, IN_ACCESS, job_, job_id());
     }
 
     void inModifyEvent(const std::filesystem::path & path, std::string name) override {
         spdlog::debug("{}: path: {}, name: {}", __FUNCTION__, path.native(), name);
-        continueEventCb_(job_, IN_MODIFY, name.size() ? path / name : path);
+        continueEventCb_(name.size() ? path / name : path, IN_MODIFY, job_, job_id());
     }
 
     void inAttribEvent(const std::filesystem::path & path, std::string name) override {
         spdlog::debug("{}: path: {}, name: {}", __FUNCTION__, path.native(), name);
-        continueEventCb_(job_, IN_ATTRIB, name.size() ? path / name : path);
+        continueEventCb_(name.size() ? path / name : path, IN_ATTRIB, job_, job_id());
     }
 
     void inMoveEvent(const std::filesystem::path & path, std::string name, bool self) override {
         spdlog::debug("{}: path: {}, name: {}, self: {}", __FUNCTION__, path.native(), name, self);
-        continueEventCb_(job_, self ? IN_MOVE_SELF : IN_MOVE, name.size() ? path / name : path);
+        continueEventCb_(name.size() ? path / name : path, self ? IN_MOVE_SELF : IN_MOVE, job_, job_id());
     }
 
     void inCloseEvent(const std::filesystem::path & path, std::string name, bool write) override {
@@ -107,7 +109,7 @@ class InotifyJob : public Inotify::Path {
             }
         }
 
-        continueEventCb_(job_, write ? IN_CLOSE_WRITE : IN_CLOSE_NOWRITE, name.size() ? path / name : path);
+        continueEventCb_(name.size() ? path / name : path, write ? IN_CLOSE_WRITE : IN_CLOSE_NOWRITE, job_, job_id());
     }
 
     void inDeleteEvent(const std::filesystem::path & path, std::string name, bool self) override {
@@ -119,30 +121,97 @@ class InotifyJob : public Inotify::Path {
         }
 
         // background
-        asio::post(ioc_, std::bind(continueEventCb_, job_, IN_DELETE, name.size() ? path / name : path));
+        asio::post(ioc_, std::bind(continueEventCb_, name.size() ? path / name : path, self ? IN_DELETE_SELF : IN_DELETE, job_, job_id()));
     }
 };
 
-class ServiceConfig : public Inotify::Path {
+class InotifyConfFile : public Inotify::Path {
+    const std::filesystem::path filename_;
+    ConfFileModifyEventCb confFileModifyEventCb_;
+
+  public:
+    InotifyConfFile(boost::asio::io_context & ioc, const std::filesystem::path & conf_path, ConfFileModifyEventCb && func)
+        : Inotify::Path(ioc, conf_path.parent_path(), IN_CLOSE_WRITE|IN_DELETE|IN_DELETE_SELF),
+            filename_(conf_path.filename()), confFileModifyEventCb_(std::move(func)) {
+    }
+
+    void inCloseEvent(const std::filesystem::path & path, std::string name, bool write) override {
+        assert(write);
+        if(name == filename_) {
+            confFileModifyEventCb_(path / name);
+        }
+    }
+
+    void inDeleteEvent(const std::filesystem::path & path, std::string name, bool self) override {
+        if(self || name == filename_) {
+            spdlog::warn("{}: path: {}, name: {}, self: {}", __FUNCTION__, path.native(), name, self);
+            cancelAsync();
+        }
+    }
+};
+
+class InotifyConfDir : public Inotify::Path {
+    ConfDirModifyEventCb confDirModifyEventCb_;
+
+  public:
+    InotifyConfDir(boost::asio::io_context & ioc, const std::filesystem::path & dir_path, ConfDirModifyEventCb && func)
+        : Inotify::Path(ioc, dir_path, IN_CLOSE_WRITE|IN_DELETE|IN_DELETE_SELF),
+            confDirModifyEventCb_(std::move(func)) {
+    }
+
+    void inCloseEvent(const std::filesystem::path & path, std::string name, bool write) override {
+        assert(write);
+        confDirModifyEventCb_(path / name, IN_CLOSE_WRITE, job_id());
+    }
+
+    void inDeleteEvent(const std::filesystem::path & path, std::string name, bool self) override {
+        if(self) {
+            spdlog::warn("{}: path: {}, name: {}, self: {}", __FUNCTION__, path.native(), name, self);
+            cancelAsync();
+        } else {
+            assert(name.size());
+            confDirModifyEventCb_(path / name, IN_DELETE, job_id());
+        }
+    }
+};
+
+class ServiceWatcher : private boost::noncopyable {
     asio::io_context & ioc_;
     asio::signal_set signals_;
     json::object conf_;
 
-    const std::filesystem::path filename_;
+    const std::filesystem::path jobs_dir_;
 
     mutable std::mutex lock_;
     std::list<InotifyPathPtr> jobs_;
 
-  protected:
-    void jobContinueEvent(const json::object & job_conf, uint32_t event, const std::filesystem::path & path) {
-        if(! job_conf.contains("command")) {
-            return;
-        }
+    std::unique_ptr<InotifyConfFile> conf_job_;
+    std::unique_ptr<InotifyConfDir> dir_jobs_;
 
-        if(IN_DELETE == event) {
+  protected:
+    void confFileModifyEvent(const std::filesystem::path & path) {
+        readConfig(path);
+    }
+
+    void confDirModifyEvent(const std::filesystem::path & path, uint32_t event, uint64_t job_id) {
+        if(IN_CLOSE_WRITE == event || IN_DELETE == event) {
             std::scoped_lock guard{ lock_ };
-            // self delete
-            jobs_.remove_if([&path](auto & job){ return job->isPath(path); });
+            // job delete
+            if(auto it = std::find_if(jobs_.begin(), jobs_.end(),
+                [job_id](auto & ptr){ return ptr->job_id() == job_id; }); it != jobs_.end()) {
+                spdlog::info("{}: remove job, id: {:016x}, path: {}", __FUNCTION__, (*it)->job_id(), (*it)->path().native());
+                jobs_.erase(it);
+            }
+
+            if(IN_CLOSE_WRITE == event) {
+                // job add
+                loadFileJob(path);
+            }
+        }
+    }
+
+    void jobContinueEvent(const std::filesystem::path & path, uint32_t event, const json::object & job_conf, uint64_t job_id) {
+        if(! job_conf.contains("command")) {
             return;
         }
 
@@ -158,18 +227,30 @@ class ServiceConfig : public Inotify::Path {
             asio::post(ioc_, std::bind(&System::runCommand, std::move(cmd), std::move(args), std::move(owner)));
         }
 
-        bool recurse = job_conf.contains("recursive") ? json::value_to<bool>(job_conf.at("recursive")) : false;
-
-        if(IN_CREATE == event && std::filesystem::is_directory(path) && recurse) {
-            auto new_conf = job_conf;
-            new_conf["path"] = path.native();
-
-            auto jobContinueEventCb = std::bind(&ServiceConfig::jobContinueEvent, this,
-                        std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
-
+        if(IN_DELETE_SELF == event) {
             std::scoped_lock guard{ lock_ };
-            jobs_.emplace_back(std::make_unique<InotifyJob>(ioc_, path, std::move(new_conf), Inotify::jobToEvents(new_conf), jobContinueEventCb));
-            spdlog::info("{}: add job, path: {}", "AddNotify", path.native());
+            // job self delete
+            if(auto it = std::find_if(jobs_.begin(), jobs_.end(),
+                [job_id](auto & ptr){ return ptr->job_id() == job_id; }); it != jobs_.end()) {
+                spdlog::info("{}: remove job, id: {:016x}, path: {}", __FUNCTION__, (*it)->job_id(), (*it)->path().native());
+                jobs_.erase(it);
+            }
+        }
+
+        if(IN_CREATE == event) {
+            bool recurse = job_conf.contains("recursive") ? json::value_to<bool>(job_conf.at("recursive")) : false;
+            if(std::filesystem::is_directory(path) && recurse) {
+                auto new_conf = job_conf;
+                new_conf["path"] = path.native();
+
+                auto jobContinueEventCb = std::bind(&ServiceWatcher::jobContinueEvent, this,
+                        std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
+
+                std::scoped_lock guard{ lock_ };
+                auto ptr = std::make_unique<InotifyJob>(ioc_, path, std::move(new_conf), Inotify::jobToEvents(new_conf), jobContinueEventCb);
+                spdlog::info("{}: add job, id: {:016x}, path: {}", __FUNCTION__, ptr->job_id(), ptr->path().native());
+                jobs_.emplace_back(std::move(ptr));
+            }
         }
     }
 
@@ -190,75 +271,126 @@ class ServiceConfig : public Inotify::Path {
 
         conf_ = json.as_object();
 
-        if(! conf_.contains("jobs") || ! conf_["jobs"].is_array()) {
-            spdlog::error("{}: json skipped, tag not found: {}", __FUNCTION__, "jobs");
-            return;
-        }
-
         bool debug = conf_.contains("debug") ? json::value_to<bool>(conf_["debug"]) : false;
         spdlog::set_level(debug ? spdlog::level::debug : spdlog::level::info);
 
-        asio::post(ioc_, std::bind(& ServiceConfig::parseJobs, this));
+        if(conf_.contains("jobs") && conf_["jobs"].is_array()) {
+            asio::post(ioc_, std::bind(& ServiceWatcher::loadAllJobs, this));
+        } else {
+            spdlog::warn("{}: config jobs empty", __FUNCTION__);
+        }
+
         spdlog::info("{}: success", __FUNCTION__);
     }
 
-    void parseJobs(void) {
-        std::scoped_lock guard{ lock_ };
-        jobs_.clear();
+    void loadAllJobs(void) {
+        // clear jobs
+        {
+            std::scoped_lock guard{ lock_ };
+            jobs_.clear();
+        }
 
+        loadConfigJobs();
+        loadDirJobs();
+    }
+
+    void loadFileJob(const std::filesystem::path & file) {
+        std::ifstream ifs{file};
+        system::error_code ec;
+        auto json = json::parse(std::string{std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>()}, ec);
+
+        if(ec) {
+            spdlog::warn("{}: {} error, code: {}, message: {}", __FUNCTION__, "json", ec.value(), ec.message());
+            return;
+        }
+
+        if(! json.is_object()) {
+            spdlog::warn("{}: {} failed, not object", __FUNCTION__, "json");
+            return;
+        }
+
+        loadJob(json.get_object());
+    }
+
+    void loadDirJobs(void) {
+        for(const auto & file: System::readDir(jobs_dir_, false, ReadDirFilter::File)) {
+            loadFileJob(file);
+        }
+    }
+
+    void loadConfigJobs(void) {
         for(auto & json : conf_["jobs"].get_array()) {
             if(! json.is_object()) {
                 spdlog::warn("{}: job skipped, not object", __FUNCTION__);
             }
 
-            auto job = json.get_object();
+            loadJob(json.get_object());
+        }
+    }
 
-            if(! job.contains("path") || ! job["path"].is_string()) {
-                spdlog::warn("{}: job skipped, tag not found: {}", __FUNCTION__, "path");
-                continue;
+    void loadJob(const json::object & job_conf) {
+
+        if(! job_conf.contains("path") || ! job_conf.at("path").is_string()) {
+            spdlog::warn("{}: job skipped, tag not found: {}", __FUNCTION__, "path");
+            return;
+        }
+
+        auto path = std::filesystem::path{job_conf.at("path").get_string().c_str()};
+        const uint32_t events = Inotify::jobToEvents(job_conf);
+
+        auto jobContinueEventCb = std::bind(&ServiceWatcher::jobContinueEvent, this,
+                    std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
+
+        if(std::filesystem::is_regular_file(path)) {
+
+            if(events == Inotify::EVENTS_BASE) {
+                auto new_conf = job_conf;
+                new_conf["name"] = path.filename().native();
+                auto ptr = std::make_unique<InotifyJob>(ioc_, path.parent_path(), new_conf, events, std::move(jobContinueEventCb));
+                spdlog::info("{}: add job, id: {:016x}, path: {}, name: {}", __FUNCTION__, ptr->job_id(), path.parent_path().native(), path.filename().native());
+                std::scoped_lock guard{ lock_ };
+                jobs_.emplace_back(std::move(ptr));
+            } else {
+                auto ptr = std::make_unique<InotifyJob>(ioc_, path, job_conf, events, std::move(jobContinueEventCb));
+                spdlog::info("{}: add job, id: {:016x}, path: {}", __FUNCTION__, ptr->job_id(), path.native());
+                std::scoped_lock guard{ lock_ };
+                jobs_.emplace_back(std::move(ptr));
             }
 
-            auto path = std::filesystem::path{job["path"].get_string().c_str()};
-            const uint32_t events = Inotify::jobToEvents(job);
+        } else if(std::filesystem::is_directory(path)) {
+            bool recurse = job_conf.contains("recursive") ? json::value_to<bool>(job_conf.at("recursive")) : false;
 
-            auto jobContinueEventCb = std::bind(&ServiceConfig::jobContinueEvent, this,
-                        std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
-
-            if(std::filesystem::is_regular_file(path)) {
-
-                if(events == Inotify::EVENTS_BASE) {
-                    job["name"] = path.filename().native();
-                    jobs_.emplace_back(std::make_unique<InotifyJob>(ioc_, path.parent_path(), job, events, jobContinueEventCb));
-                    spdlog::info("{}: add job, path: {}, name: {}", "AddNotify", path.parent_path().native(), path.filename().native());
-                } else {
-                    jobs_.emplace_back(std::make_unique<InotifyJob>(ioc_, path, job, events, jobContinueEventCb));
-                    spdlog::info("{}: add job, path: {}", "AddNotify", path.native());
-                }
-
-            } else if(std::filesystem::is_directory(path)) {
-                bool recurse = job.contains("recursive") ? json::value_to<bool>(job["recursive"]) : false;
-                
-                if(recurse) {
-                    auto dirs = System::readDir(path, recurse, ReadDirFilter::Dir);
-                    for(const auto & dir : dirs) {
-                        jobs_.emplace_back(std::make_unique<InotifyJob>(ioc_, dir, job, events, jobContinueEventCb));
-                        spdlog::info("{}: add job, path: {}", "AddNotify", dir);
-                    }
-                } else {
-                    jobs_.emplace_back(std::make_unique<InotifyJob>(ioc_, path, job, events, jobContinueEventCb));
-                    spdlog::info("{}: add job, path: {}", "AddNotify", path.native());
+            if(recurse) {
+                auto dirs = System::readDir(path, recurse, ReadDirFilter::Dir);
+                for(const auto & dir : dirs) {
+                    auto ptr = std::make_unique<InotifyJob>(ioc_, dir, job_conf, events, std::move(jobContinueEventCb));
+                    spdlog::info("{}: add job, id: {:016x}, path: {}", __FUNCTION__, ptr->job_id(), dir);
+                    std::scoped_lock guard{ lock_ };
+                    jobs_.emplace_back(std::move(ptr));
                 }
             } else {
-                spdlog::warn("{}: job skipped, path not found: {}", __FUNCTION__, path.native());
+                auto ptr = std::make_unique<InotifyJob>(ioc_, path, job_conf, events, std::move(jobContinueEventCb));
+                spdlog::info("{}: add job, id: {:016x}, path: {}", __FUNCTION__, ptr->job_id(), path.native());
+                std::scoped_lock guard{ lock_ };
+                jobs_.emplace_back(std::move(ptr));
             }
+        } else {
+            spdlog::warn("{}: job skipped, path not found: {}", __FUNCTION__, path.native());
         }
     }
 
   public:
-    ServiceConfig(boost::asio::io_context & ioc, const std::filesystem::path & path)
-        : Inotify::Path(ioc, path.parent_path(), IN_CLOSE_WRITE), ioc_(ioc), signals_(ioc), filename_(path.filename()) {
-        spdlog::info("found config: {}", path.native());
-        readConfig(path);
+    ServiceWatcher(boost::asio::io_context & ioc, const std::filesystem::path & conf_path, const std::filesystem::path & jobs_dir)
+        : ioc_(ioc), signals_(ioc), jobs_dir_(jobs_dir) {
+        spdlog::info("found config: {}", conf_path.native());
+        readConfig(conf_path);
+
+        conf_job_ = std::make_unique<InotifyConfFile>(ioc_, conf_path, std::bind(&ServiceWatcher::confFileModifyEvent, this, std::placeholders::_1));
+
+        if(std::filesystem::is_directory(jobs_dir)) {
+            dir_jobs_ = std::make_unique<InotifyConfDir>(ioc_, jobs_dir, std::bind(&ServiceWatcher::confDirModifyEvent, this,
+                                                            std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+        }
 
         signals_.add(SIGINT);
         signals_.add(SIGTERM);
@@ -273,20 +405,6 @@ class ServiceConfig : public Inotify::Path {
         });
     }
 
-    void inCloseEvent(const std::filesystem::path & path, std::string name, bool write) override {
-        // close_write event
-        if(write && name == filename_.native()) {
-            readConfig(path / name);
-        }
-    }
-
-    void inDeleteEvent(const std::filesystem::path & path, std::string name, bool self) override {
-        if(self) {
-            spdlog::warn("{}: delete self event, path: {}", __FUNCTION__, path.c_str());
-            cancelAsync();
-        }
-    }
-
     void status(void) const {
         std::scoped_lock guard{ lock_ };
         spdlog::info("{}: jobs count: {}", __FUNCTION__, jobs_.size());
@@ -296,10 +414,7 @@ class ServiceConfig : public Inotify::Path {
                 auto & conf = ptr->getConf();
                 auto path = json::value_to<std::string>(conf.at("path"));
                 auto cmd = json::value_to<std::string>(conf.at("command"));
-                //auto owner = conf.contains("owner") ? json::value_to<std::string>(conf.at("owner")) : std::string{};
-                //auto escaped = conf.contains("escaped") ? json::value_to<bool>(conf.at("escaped")) : false;
-                //bool recurse = conf.contains("recursive") ? json::value_to<bool>(conf.at("recursive")) : false;
-                spdlog::info("{}: job path: {}, cmd: {}", __FUNCTION__, path, cmd);
+                spdlog::info("{}: job id: {:016x}, path: {}, cmd: {}", __FUNCTION__, ptr->job_id(), path, cmd);
             }
         }
     }
@@ -307,10 +422,15 @@ class ServiceConfig : public Inotify::Path {
 
 int main(int argc, char** argv) {
 
-    const char* path = "/etc/inotify_watcher/config.json";
+    const char* conf_path = "/etc/inotify_watcher/config.json";
+    const char* jobs_dir = "/etc/inotify_watcher/jobs.d";
 
     if(auto env = getenv("INOTIFY_SERVICE_CONF")) {
-        path = env;
+        conf_path = env;
+    }
+
+    if(auto env = getenv("INOTIFY_JOBS_DIR")) {
+        jobs_dir = env;
     }
 
     if(1 < argc) {
@@ -320,12 +440,12 @@ int main(int argc, char** argv) {
         }
 
         if(0 == strcmp(argv[1], "--config")) {
-            path = argv[2];
+            conf_path = argv[2];
         }
     }
 
-    if(! std::filesystem::is_regular_file(path)) {
-        std::cerr << "config not found: " << path << std::endl;
+    if(! std::filesystem::is_regular_file(conf_path)) {
+        std::cerr << "config not found: " << conf_path << std::endl;
         std::cout << "usage: " << argv[0] << " --config <json config>" << std::endl;
         return EXIT_FAILURE;
     }
@@ -342,7 +462,7 @@ int main(int argc, char** argv) {
     asio::io_context ctx{4};
 
     try {
-        auto app = std::make_unique<ServiceConfig>(ctx, path);
+        auto app = std::make_unique<ServiceWatcher>(ctx, conf_path, jobs_dir);
         sd_notify(0, "READY=1");
         ctx.run();
         spdlog::info("service stopped");

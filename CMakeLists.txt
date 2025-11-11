@@ -13,7 +13,7 @@ add_executable(inotify_watcher src/inotify_service.cpp src/inotify_path.cpp src/
 set(Boost_USE_STATIC_LIBS OFF)
 set(Boost_USE_MULTITHREADED ON)
 
-find_package(Boost 1.75 REQUIRED system json REQUIRED)
+find_package(Boost 1.75 REQUIRED json REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 pkg_check_modules(SYSTEMD libsystemd)
 

@@ -124,7 +124,7 @@ namespace Inotify {
         }
 
         // watch directory for any activity and report it back to me
-        wd_ = inotify_add_watch(fd_, path_.c_str(), IN_ALL_EVENTS);
+        wd_ = inotify_add_watch(fd_, path_.c_str(), events);
 
         if(wd_ < 0) {
             spdlog::error("{}: {} failed, error: {}, errno: {}", __FUNCTION__, "inotify_add_watch", strerror(errno), errno);
