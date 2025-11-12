@@ -112,7 +112,11 @@ namespace Inotify {
     };
 
     Path::Path(asio::io_context & ioc, const std::filesystem::path & path, uint32_t events)
+<<<<<<< HEAD
         : sd_(ioc), strand_(ioc.get_executor()), path_(path), ioc_(ioc) {
+=======
+        : ioc_(ioc), sd_(ioc), strand_(ioc.get_executor()), path_(path) {
+>>>>>>> 2b0bc0e (Without Boost::json version)
 
         log = spdlog::get("inotify_watcher");
 
