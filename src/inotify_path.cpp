@@ -9,7 +9,9 @@
  ***************************************************************************/
 
 #include <stdexcept>
+#include <functional>
 #include <spdlog/spdlog.h>
+#include <spdlog/logger.h>
 
 #include"inotify_path.h"
 
@@ -109,7 +111,7 @@ namespace Inotify {
             asio::bind_executor(strand_, 
                 std::bind(& Path::readNotify, this, std::placeholders::_1, std::placeholders::_2)));
     }
-    
+
     bool Path::changeFilterEvents(uint32_t events) {
         if(0 <= fd_) {
             if(0 <= wd_) {
@@ -130,7 +132,7 @@ namespace Inotify {
     }
 
     Path::Path(asio::io_context & ioc, const std::filesystem::path & path, uint32_t events)
-        : sd_(ioc), strand_(asio::make_strand(ioc)), path_(path), ioc_(ioc) {
+        : sd_(ioc), strand_(ioc.get_executor()), path_(path), ioc_(ioc) {
 
         log_ = spdlog::get("inotify_watcher");
 

@@ -8,7 +8,6 @@
  *                                                                         *
  ***************************************************************************/
 
-#include <boost/json.hpp>
 #include <boost/algorithm/string/join.hpp>
 
 #include <list>
@@ -21,42 +20,38 @@
 #include <systemd/sd-daemon.h>
 
 #include "spdlog/spdlog.h"
-#include "spdlog/sinks/systemd_sink.h"
+#include "spdlog/sinks/syslog_sink.h"
 
+#include "swe_json.h"
 #include "inotify_path.h"
 #include "inotify_tools.h"
 
 using namespace boost;
+using namespace SWE;
+
 using InotifyPathPtr = std::unique_ptr<Inotify::Path>;
 using ConfFileModifyEventCb = std::function<void(const std::filesystem::path &)>;
 using ConfDirModifyEventCb = std::function<void(const std::filesystem::path &, uint32_t, uint64_t)>;
-using JobContinueEventCb = std::function<void(const std::filesystem::path &, uint32_t, const json::object &, uint64_t)>;
+using JobContinueEventCb = std::function<void(const std::filesystem::path &, uint32_t, const JsonObject &, uint64_t)>;
 
 namespace Inotify {
-    uint32_t jsonArrayToEvents(const json::array & ar) {
-        std::vector<std::string> names;
-#if (BOOST_VERSION >= 108200)
-        json::parse_into(names, json::serialize(ar));
+    uint32_t jsonArrayToEvents(const JsonArray* ar) {
         uint32_t events = 0;
-        for(auto & name: names) {
+
+        for(auto & name : ar->toStdVector<std::string>()) {
             events |= Inotify::nameToMask(name);
         }
-#else
-        uint32_t events = 0;
-        for(auto & jv: ar) {
-            events |= Inotify::nameToMask(json::value_to<std::string>(jv));
-        }
-#endif
+
         return events;
     }
 
-    const uint32_t EVENTS_BASE = IN_CLOSE_WRITE|IN_DELETE_SELF;
+    const uint32_t EVENTS_BASE = IN_CLOSE_WRITE | IN_DELETE_SELF;
 
-    uint32_t jobToEvents(const json::object & job) {
+    uint32_t jobToEvents(const JsonObject & job) {
         uint32_t events = EVENTS_BASE;
 
-        if(job.contains("inotify") && job.at("inotify").is_array()) {
-            events = jsonArrayToEvents(job.at("inotify").as_array());
+        if(job.isArray("inotify")) {
+            events = jsonArrayToEvents(job.getArray("inotify"));
         }
 
         return events;
@@ -64,28 +59,28 @@ namespace Inotify {
 }
 
 class InotifyJob : public Inotify::Path {
-    json::object job_;
     std::shared_ptr<spdlog::logger> log_;
+    JsonObject job_;
     JobContinueEventCb continueEventCb_;
     uint32_t filter_ = 0;
     bool debug_ = false;
 
   public:
     InotifyJob(boost::asio::io_context & ioc, const std::filesystem::path & path,
-        const json::object & json, uint32_t events, JobContinueEventCb && func)
+               const JsonObject & json, uint32_t events, const JobContinueEventCb & func)
         : Inotify::Path(ioc, path, (events | IN_DELETE_SELF)), job_(json), continueEventCb_(std::move(func)) {
 
 	log_ = spdlog::get("inotify_watcher");
 
         filter_ = (events | IN_DELETE_SELF);
-        debug_ = json.contains("debug") ? json::value_to<bool>(json.at("debug")) : false;
+        debug_ = json.getBoolean("debug", false);
 
         if(debug_) {
             changeFilterEvents(IN_ALL_EVENTS);
         }
     }
 
-    const json::object & getConf(void) const {
+    const JsonObject & getConf(void) const {
         return job_;
     }
 
@@ -140,8 +135,8 @@ class InotifyJob : public Inotify::Path {
     void inCloseEvent(const std::filesystem::path & path, std::string name, bool write) override {
         log_->debug("{}: path: {}, name: {}, write: {}", __FUNCTION__, path.native(), name, write);
 
-        if(job_.contains("name")) {
-            if(name != json::value_to<std::string>(job_["name"])) {
+        if(job_.hasKey("name")) {
+            if(name != job_.getString("name")) {
                 return;
             }
         }
@@ -174,12 +169,13 @@ class InotifyConfFile : public Inotify::Path {
 
   public:
     InotifyConfFile(boost::asio::io_context & ioc, const std::filesystem::path & conf_path, ConfFileModifyEventCb && func)
-        : Inotify::Path(ioc, conf_path.parent_path(), IN_CLOSE_WRITE|IN_DELETE|IN_DELETE_SELF),
-            filename_(conf_path.filename()), confFileModifyEventCb_(std::move(func)) {
+        : Inotify::Path(ioc, conf_path.parent_path(), IN_CLOSE_WRITE | IN_DELETE | IN_DELETE_SELF),
+          filename_(conf_path.filename()), confFileModifyEventCb_(std::move(func)) {
     }
 
     void inCloseEvent(const std::filesystem::path & path, std::string name, bool write) override {
         assert(write);
+
         if(name == filename_) {
             confFileModifyEventCb_(path / name);
         }
@@ -198,8 +194,8 @@ class InotifyConfDir : public Inotify::Path {
 
   public:
     InotifyConfDir(boost::asio::io_context & ioc, const std::filesystem::path & dir_path, ConfDirModifyEventCb && func)
-        : Inotify::Path(ioc, dir_path, IN_CLOSE_WRITE|IN_DELETE|IN_DELETE_SELF),
-            confDirModifyEventCb_(std::move(func)) {
+        : Inotify::Path(ioc, dir_path, IN_CLOSE_WRITE | IN_DELETE | IN_DELETE_SELF),
+          confDirModifyEventCb_(std::move(func)) {
     }
 
     void inCloseEvent(const std::filesystem::path & path, std::string name, bool write) override {
@@ -221,7 +217,7 @@ class InotifyConfDir : public Inotify::Path {
 class ServiceWatcher : private boost::noncopyable {
     asio::io_context & ioc_;
     asio::signal_set signals_;
-    json::object conf_;
+    JsonObject conf_;
 
     const std::filesystem::path jobs_dir_;
 
@@ -241,6 +237,7 @@ class ServiceWatcher : private boost::noncopyable {
     void confDirModifyEvent(const std::filesystem::path & path, uint32_t event, uint64_t job_id) {
         if(IN_CLOSE_WRITE == event || IN_DELETE == event) {
             std::scoped_lock guard{ lock_ };
+
             // job delete
             if(auto it = std::find_if(jobs_.begin(), jobs_.end(),
                 [job_id](auto & ptr){ return ptr->job_id() == job_id; }); it != jobs_.end()) {
@@ -255,17 +252,17 @@ class ServiceWatcher : private boost::noncopyable {
         }
     }
 
-    void jobContinueEvent(const std::filesystem::path & path, uint32_t event, const json::object & job_conf, uint64_t job_id) {
-        if(! job_conf.contains("command")) {
+    void jobContinueEvent(const std::filesystem::path & path, uint32_t event, const JsonObject & job_conf, uint64_t job_id) {
+        if(! job_conf.hasKey("command")) {
             return;
         }
 
         log_->debug("{}: event: {}", __FUNCTION__, Inotify::maskToName(event));
 
-        if( Inotify::jobToEvents(job_conf) & event ) {
-            auto cmd = json::value_to<std::string>(job_conf.at("command"));
-            auto owner = job_conf.contains("owner") ? json::value_to<std::string>(job_conf.at("owner")) : std::string{};
-            auto escaped = job_conf.contains("escaped") ? json::value_to<bool>(job_conf.at("escaped")) : false;
+        if(Inotify::jobToEvents(job_conf) & event) {
+            auto cmd = job_conf.getString("command");
+            auto owner = job_conf.getString("owner");
+            auto escaped = job_conf.getBoolean("escaped", false);
             std::list<std::string> args = { std::string(Inotify::maskToName(event)), String::quoted(path.native(), escaped) };
 
             log_->info("{}: run cmd: {}, args: [{}]", __FUNCTION__, cmd, boost::algorithm::join(args, ","));
@@ -274,6 +271,7 @@ class ServiceWatcher : private boost::noncopyable {
 
         if(IN_DELETE_SELF == event) {
             std::scoped_lock guard{ lock_ };
+
             // job self delete
             if(auto it = std::find_if(jobs_.begin(), jobs_.end(),
                 [job_id](auto & ptr){ return ptr->job_id() == job_id; }); it != jobs_.end()) {
@@ -283,13 +281,14 @@ class ServiceWatcher : private boost::noncopyable {
         }
 
         if(IN_CREATE == event) {
-            bool recurse = job_conf.contains("recursive") ? json::value_to<bool>(job_conf.at("recursive")) : false;
+            bool recurse = job_conf.getBoolean("recursive", false);
+
             if(std::filesystem::is_directory(path) && recurse) {
                 auto new_conf = job_conf;
-                new_conf["path"] = path.native();
+                new_conf.addString("path", path.native());
 
                 auto jobContinueEventCb = std::bind(&ServiceWatcher::jobContinueEvent, this,
-                        std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
+                                                    std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
 
                 std::scoped_lock guard{ lock_ };
                 auto ptr = std::make_unique<InotifyJob>(ioc_, path, std::move(new_conf), Inotify::jobToEvents(new_conf), jobContinueEventCb);
@@ -300,26 +299,20 @@ class ServiceWatcher : private boost::noncopyable {
     }
 
     void readConfig(const std::filesystem::path & path) {
-        std::ifstream ifs{path};
-        system::error_code ec;
-        auto json = json::parse(std::string{std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>()}, ec);
 
-        if(ec) {
-            log_->error("{}: {} error, code: {}, message: {}", __FUNCTION__, "json", ec.value(), ec.message());
-            return;
-        }
+        auto jc = JsonContentFile(path);
 
-        if(! json.is_object()) {
+        if(! jc.isObject()) {
             log_->error("{}: {} failed, not object", __FUNCTION__, "json");
             return;
         }
 
-        conf_ = json.as_object();
+        conf_ = jc.toObject();
 
-        bool debug = conf_.contains("debug") ? json::value_to<bool>(conf_["debug"]) : false;
+        bool debug = conf_.getBoolean("debug", false);
         log_->set_level(debug ? spdlog::level::debug : spdlog::level::info);
 
-        if(conf_.contains("jobs") && conf_["jobs"].is_array()) {
+        if(conf_.hasKey("jobs") && conf_.isArray("jobs")) {
             asio::post(ioc_, std::bind(& ServiceWatcher::loadAllJobs, this));
         } else {
             log_->warn("{}: config jobs empty", __FUNCTION__);
@@ -345,57 +338,52 @@ class ServiceWatcher : private boost::noncopyable {
             return;
         }
 
-        std::ifstream ifs{file};
-        system::error_code ec;
-        auto json = json::parse(std::string{std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>()}, ec);
+        auto jc = JsonContentFile(file);
 
-        if(ec) {
-            log_->warn("{}: {} error, code: {}, message: {}", __FUNCTION__, "json", ec.value(), ec.message());
+        if(! jc.isObject()) {
+            log_->error("{}: {} failed, not object", __FUNCTION__, "json");
             return;
         }
 
-        if(! json.is_object()) {
-            log_->warn("{}: {} failed, not object", __FUNCTION__, "json");
-            return;
-        }
-
-        loadJob(json.get_object());
+        loadJob(jc.toObject());
     }
 
     void loadDirJobs(void) {
-        for(const auto & file: System::readDir(jobs_dir_, false, ReadDirFilter::File)) {
+        for(const auto & file : System::readDir(jobs_dir_, false, ReadDirFilter::File)) {
             loadFileJob(file);
         }
     }
 
     void loadConfigJobs(void) {
-        for(auto & json : conf_["jobs"].get_array()) {
-            if(! json.is_object()) {
-                log_->warn("{}: job skipped, not object", __FUNCTION__);
+        if(auto ja = conf_.getArray("jobs")) {
+            for(int it = 0; it < ja->size(); ++it) {
+                if(auto jo = ja->getObject(it)) {
+                    loadJob(*jo);
+                } else {
+                    log_->warn("{}: job skipped, not object", __FUNCTION__);
+                }
             }
-
-            loadJob(json.get_object());
         }
     }
 
-    void loadJob(const json::object & job_conf) {
+    void loadJob(const JsonObject & job_conf) {
 
-        if(! job_conf.contains("path") || ! job_conf.at("path").is_string()) {
+        if(! job_conf.isString("path")) {
             log_->warn("{}: job skipped, tag not found: {}", __FUNCTION__, "path");
             return;
         }
 
-        auto path = std::filesystem::path{job_conf.at("path").get_string().c_str()};
+        auto path = std::filesystem::path{job_conf.getString("path")};
         const uint32_t events = Inotify::jobToEvents(job_conf);
 
         auto jobContinueEventCb = std::bind(&ServiceWatcher::jobContinueEvent, this,
-                    std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
+                                            std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
 
         if(std::filesystem::is_regular_file(path)) {
 
             if(events == Inotify::EVENTS_BASE) {
                 auto new_conf = job_conf;
-                new_conf["name"] = path.filename().native();
+                new_conf.addString("name", path.filename().native());
                 auto ptr = std::make_unique<InotifyJob>(ioc_, path.parent_path(), new_conf, events, std::move(jobContinueEventCb));
                 log_->info("{}: add job, id: {:016x}, path: {}, name: {}", __FUNCTION__, ptr->job_id(), path.parent_path().native(), path.filename().native());
                 std::scoped_lock guard{ lock_ };
@@ -408,10 +396,11 @@ class ServiceWatcher : private boost::noncopyable {
             }
 
         } else if(std::filesystem::is_directory(path)) {
-            bool recurse = job_conf.contains("recursive") ? json::value_to<bool>(job_conf.at("recursive")) : false;
+            bool recurse = job_conf.getBoolean("recursive", false);
 
             if(recurse) {
                 auto dirs = System::readDir(path, recurse, ReadDirFilter::Dir);
+
                 for(const auto & dir : dirs) {
                     auto ptr = std::make_unique<InotifyJob>(ioc_, dir, job_conf, events, std::move(jobContinueEventCb));
                     log_->info("{}: add job, id: {:016x}, path: {}", __FUNCTION__, ptr->job_id(), dir);
@@ -441,7 +430,7 @@ class ServiceWatcher : private boost::noncopyable {
 
         if(std::filesystem::is_directory(jobs_dir)) {
             dir_jobs_ = std::make_unique<InotifyConfDir>(ioc_, jobs_dir, std::bind(&ServiceWatcher::confDirModifyEvent, this,
-                                                            std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+                        std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
         }
 
         signals_.add(SIGINT);
@@ -461,11 +450,11 @@ class ServiceWatcher : private boost::noncopyable {
         std::scoped_lock guard{ lock_ };
         log_->info("{}: jobs count: {}", __FUNCTION__, jobs_.size());
 
-        for(const auto & job: jobs_) {
+        for(const auto & job : jobs_) {
             if(auto ptr = dynamic_cast<InotifyJob*>(job.get())) {
                 auto & conf = ptr->getConf();
-                auto path = json::value_to<std::string>(conf.at("path"));
-                auto cmd = json::value_to<std::string>(conf.at("command"));
+                auto path = conf.getString("path");
+                auto cmd = conf.getString("command");
                 log_->info("{}: job id: {:016x}, path: {}, cmd: {}", __FUNCTION__, ptr->job_id(), path, cmd);
             }
         }
@@ -502,14 +491,13 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
 
-    auto sink = std::make_shared<spdlog::sinks::systemd_sink_mt>();
+    auto sink = std::make_shared<spdlog::sinks::syslog_sink>("inotify_watcher");
     auto logger = std::make_shared<spdlog::logger>("inotify_watcher", sink);
 
     spdlog::register_logger(logger);
-    spdlog::set_default_logger(logger);
 
-    spdlog::set_pattern("%v");
-    spdlog::set_level(spdlog::level::info);
+    logger->set_pattern("%v");
+    logger->set_level(spdlog::level::info);
 
     asio::io_context ctx{4};
 
