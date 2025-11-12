@@ -295,6 +295,11 @@ class ServiceWatcher : private boost::noncopyable {
     }
 
     void loadFileJob(const std::filesystem::path & file) {
+        if(file.extension() != ".job") {
+            spdlog::debug("{}: skipped job: {}", __FUNCTION__, file.native());
+            return;
+        }
+
         std::ifstream ifs{file};
         system::error_code ec;
         auto json = json::parse(std::string{std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>()}, ec);
