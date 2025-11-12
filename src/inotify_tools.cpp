@@ -147,18 +147,19 @@ namespace System {
 
     void runCommand(std::string cmd, std::list<std::string> args, std::string owner) {
         pid_t pid = fork();
+        auto log = spdlog::get("inotify_watcher");
 
         if(0 < pid) {
             int status;
 
             if(0 > waitpid(pid, & status, 0)) {
-                spdlog::error("{}: {} failed, error: {}, errno: {}", __FUNCTION__, "waitpid", strerror(errno), errno);
+                log->error("{}: {} failed, error: {}, errno: {}", __FUNCTION__, "waitpid", strerror(errno), errno);
             }
 
             return;
 
         } else if(0 > pid) {
-            spdlog::error("{}: {} failed, error: {}, errno: {}", __FUNCTION__, "fork", strerror(errno), errno);
+            log->error("{}: {} failed, error: {}, errno: {}", __FUNCTION__, "fork", strerror(errno), errno);
             return;
         }
 
@@ -184,7 +185,7 @@ namespace System {
                 setgid(pwd->pw_gid);
 
                 if(0 > setuid(pwd->pw_uid)) {
-                    spdlog::error("{}: {} failed, error: {}, errno: {}", __FUNCTION__, "setuid", strerror(errno), errno);
+                    log->error("{}: {} failed, error: {}, errno: {}", __FUNCTION__, "setuid", strerror(errno), errno);
                     std::exit(-1);
                 }
 

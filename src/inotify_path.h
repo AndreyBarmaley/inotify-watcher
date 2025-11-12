@@ -22,6 +22,8 @@
 #include <stdexcept>
 #include <filesystem>
 
+#include "spdlog/spdlog.h"
+
 namespace Inotify {
     class Path : boost::noncopyable {
         int fd_ = -1;
@@ -35,6 +37,7 @@ namespace Inotify {
 
       protected:
         boost::asio::io_context & ioc_;
+        std::shared_ptr<spdlog::logger> log;
 
         void cancelAsync(void);
         bool parseEvents(const char* beg, const char* end);
@@ -52,9 +55,13 @@ namespace Inotify {
         virtual void inMoveEvent(const std::filesystem::path &, std::string, bool self) {}
         virtual void inCreateEvent(const std::filesystem::path &, std::string) {}
         virtual void inDeleteEvent(const std::filesystem::path &, std::string, bool self) {}
-        
-        const std::filesystem::path & path(void) const { return path_; }
-        uint64_t job_id(void) const { return reinterpret_cast<uint64_t>(this); }
+
+        const std::filesystem::path & path(void) const {
+            return path_;
+        }
+        uint64_t job_id(void) const {
+            return reinterpret_cast<uint64_t>(this);
+        }
     };
 }
 
