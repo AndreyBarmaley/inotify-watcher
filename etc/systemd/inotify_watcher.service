@@ -1,6 +1,6 @@
 [Unit]
 Description=Inotify Watcher Service
-After=network.target
+After=local-fs.target
 
 [Service]
 Type=simple
