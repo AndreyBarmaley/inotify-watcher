@@ -1,8 +1,8 @@
 %global debug_package %{nil}
 
 Name:           inotify_watcher
-Version:        1.3
-Release:        7%{?dist}
+Version:        1.4
+Release:        1%{?dist}
 Summary:        Inotify watcher service
 
 License:        MIT
