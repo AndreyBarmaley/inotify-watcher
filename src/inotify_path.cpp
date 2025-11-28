@@ -107,7 +107,26 @@ namespace Inotify {
         // next async
         asio::async_read(sd_, asio::buffer(buf_), asio::transfer_at_least(sizeof(struct inotify_event)),
                          asio::bind_executor(strand_, std::bind(& Path::readNotify, this, asio::placeholders::error, asio::placeholders::bytes_transferred)));
-    };
+    }
+    
+    bool Path::changeFilterEvents(uint32_t events) {
+        if(0 <= fd_) {
+            if(0 <= wd_) {
+                inotify_rm_watch(fd_, wd_);
+            }
+
+            wd_ = inotify_add_watch(fd_, path_.c_str(), events);
+
+            if(wd_ < 0) {
+                spdlog::error("{}: {} failed, error: {}, errno: {}", __FUNCTION__, "inotify_add_watch", strerror(errno), errno);
+                return false;
+            }
+            
+            return true;
+        }
+        
+        return false;
+    }
 
     Path::Path(asio::io_context & ioc, const std::filesystem::path & path, uint32_t events)
         : sd_(ioc), strand_(asio::make_strand(ioc)), path_(path), ioc_(ioc) {

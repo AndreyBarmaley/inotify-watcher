@@ -3,6 +3,7 @@
     "jobs":
     [
         {
+            "debug": false,
             "path": "/var/tmp/dir",
             "inotify:details": "see man inotify",
             "inotify": [ "IN_CLOSE_WRITE", "IN_CREATE", "IN_DELETE" ],

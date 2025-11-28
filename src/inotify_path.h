@@ -39,6 +39,7 @@ namespace Inotify {
         void cancelAsync(void);
         bool parseEvents(const char* beg, const char* end);
         void readNotify(const boost::system::error_code & ec, size_t recv);
+        bool changeFilterEvents(uint32_t);
 
       public:
         Path(boost::asio::io_context &, const std::filesystem::path &, uint32_t events = IN_ALL_EVENTS);

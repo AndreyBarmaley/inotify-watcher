@@ -59,11 +59,20 @@ namespace Inotify {
 class InotifyJob : public Inotify::Path {
     json::object job_;
     JobContinueEventCb continueEventCb_;
+    uint32_t filter_ = 0;
+    bool debug_ = false;
 
   public:
     InotifyJob(boost::asio::io_context & ioc, const std::filesystem::path & path,
         const json::object & json, uint32_t events, JobContinueEventCb && func)
         : Inotify::Path(ioc, path, (events | IN_DELETE_SELF)), job_(json), continueEventCb_(std::move(func)) {
+
+        filter_ = (events | IN_DELETE_SELF);
+        debug_ = json.contains("debug") ? json::value_to<bool>(json.at("debug")) : false;
+
+        if(debug_) {
+            changeFilterEvents(IN_ALL_EVENTS);
+        }
     }
 
     const json::object & getConf(void) const {
@@ -72,32 +81,50 @@ class InotifyJob : public Inotify::Path {
 
     void inOpenEvent(const std::filesystem::path & path, std::string name) override {
         spdlog::debug("{}: path: {}, name: {}", __FUNCTION__, path.native(), name);
-        continueEventCb_(name.size() ? path / name : path, IN_OPEN, job_, job_id());
+        const uint32_t event = IN_OPEN;
+        if(!debug_ || (filter_ & event)) {
+            continueEventCb_(name.size() ? path / name : path, event, job_, job_id());
+        }
     }
 
     void inCreateEvent(const std::filesystem::path & path, std::string name) override {
         spdlog::debug("{}: path: {}, name: {}", __FUNCTION__, path.native(), name);
-        continueEventCb_(name.size() ? path / name : path, IN_CREATE, job_, job_id());
+        const uint32_t event = IN_CREATE;
+        if(!debug_ || (filter_ & event)) {
+            continueEventCb_(name.size() ? path / name : path, event, job_, job_id());
+        }
     }
 
     void inAccessEvent(const std::filesystem::path & path, std::string name) override {
         spdlog::debug("{}: path: {}, name: {}", __FUNCTION__, path.native(), name);
-        continueEventCb_(name.size() ? path / name : path, IN_ACCESS, job_, job_id());
+        const uint32_t event = IN_ACCESS;
+        if(!debug_ || (filter_ & event)) {
+            continueEventCb_(name.size() ? path / name : path, event, job_, job_id());
+        }
     }
 
     void inModifyEvent(const std::filesystem::path & path, std::string name) override {
         spdlog::debug("{}: path: {}, name: {}", __FUNCTION__, path.native(), name);
-        continueEventCb_(name.size() ? path / name : path, IN_MODIFY, job_, job_id());
+        const uint32_t event = IN_MODIFY;
+        if(!debug_ || (filter_ & event)) {
+            continueEventCb_(name.size() ? path / name : path, event, job_, job_id());
+        }
     }
 
     void inAttribEvent(const std::filesystem::path & path, std::string name) override {
         spdlog::debug("{}: path: {}, name: {}", __FUNCTION__, path.native(), name);
-        continueEventCb_(name.size() ? path / name : path, IN_ATTRIB, job_, job_id());
+        const uint32_t event = IN_ATTRIB;
+        if(!debug_ || (filter_ & event)) {
+            continueEventCb_(name.size() ? path / name : path, event, job_, job_id());
+        }
     }
 
     void inMoveEvent(const std::filesystem::path & path, std::string name, bool self) override {
         spdlog::debug("{}: path: {}, name: {}, self: {}", __FUNCTION__, path.native(), name, self);
-        continueEventCb_(name.size() ? path / name : path, self ? IN_MOVE_SELF : IN_MOVE, job_, job_id());
+        const uint32_t event = self ? IN_MOVE_SELF : IN_MOVE;
+        if(!debug_ || (filter_ & event)) {
+            continueEventCb_(name.size() ? path / name : path, event, job_, job_id());
+        }
     }
 
     void inCloseEvent(const std::filesystem::path & path, std::string name, bool write) override {
@@ -109,7 +136,10 @@ class InotifyJob : public Inotify::Path {
             }
         }
 
-        continueEventCb_(name.size() ? path / name : path, write ? IN_CLOSE_WRITE : IN_CLOSE_NOWRITE, job_, job_id());
+        const uint32_t event = write ? IN_CLOSE_WRITE : IN_CLOSE_NOWRITE;
+        if(!debug_ || (filter_ & event)) {
+            continueEventCb_(name.size() ? path / name : path, event, job_, job_id());
+        }
     }
 
     void inDeleteEvent(const std::filesystem::path & path, std::string name, bool self) override {
@@ -120,8 +150,11 @@ class InotifyJob : public Inotify::Path {
             spdlog::debug("{}: path: {}, name: {}, self: {}", __FUNCTION__, path.native(), name, self);
         }
 
-        // background
-        asio::post(ioc_, std::bind(continueEventCb_, name.size() ? path / name : path, self ? IN_DELETE_SELF : IN_DELETE, job_, job_id()));
+        const uint32_t event = self ? IN_DELETE_SELF : IN_DELETE;
+        if(!debug_ || (filter_ & event)) {
+            // background
+            asio::post(ioc_, std::bind(continueEventCb_, name.size() ? path / name : path, event, job_, job_id()));
+        }
     }
 };
 
