@@ -41,47 +41,47 @@ namespace Inotify {
             }
 
             if(st->mask & (IN_CREATE)) {
-                asio::post(ioc_, std::bind(& Path::inCreateEvent, this, path_, std::move(name)));
+                asio::post(ioc_, std::bind(& Path::inCreateEvent, this, path_, name));
             }
 
             if(st->mask & (IN_OPEN)) {
-                asio::post(ioc_, std::bind(& Path::inOpenEvent, this, path_, std::move(name)));
+                asio::post(ioc_, std::bind(& Path::inOpenEvent, this, path_, name));
             }
 
             if(st->mask & (IN_ACCESS)) {
-                asio::post(ioc_, std::bind(& Path::inAccessEvent, this, path_, std::move(name)));
+                asio::post(ioc_, std::bind(& Path::inAccessEvent, this, path_, name));
             }
 
             if(st->mask & (IN_MODIFY)) {
-                asio::post(ioc_, std::bind(& Path::inModifyEvent, this, path_, std::move(name)));
+                asio::post(ioc_, std::bind(& Path::inModifyEvent, this, path_, name));
             }
 
             if(st->mask & (IN_ATTRIB)) {
-                asio::post(ioc_, std::bind(& Path::inAttribEvent, this, path_, std::move(name)));
+                asio::post(ioc_, std::bind(& Path::inAttribEvent, this, path_, name));
             }
 
             if(st->mask & (IN_CLOSE_WRITE)) {
-                asio::post(ioc_, std::bind(& Path::inCloseEvent, this, path_, std::move(name), true));
+                asio::post(ioc_, std::bind(& Path::inCloseEvent, this, path_, name, true));
             }
 
             if(st->mask & (IN_CLOSE_NOWRITE)) {
-                asio::post(ioc_, std::bind(& Path::inCloseEvent, this, path_, std::move(name), false));
+                asio::post(ioc_, std::bind(& Path::inCloseEvent, this, path_, name, false));
             }
 
             if(st->mask & (IN_MOVE)) {
-                asio::post(ioc_, std::bind(& Path::inMoveEvent, this, path_, std::move(name), false));
+                asio::post(ioc_, std::bind(& Path::inMoveEvent, this, path_, name, false));
             }
 
             if(st->mask & (IN_MOVE_SELF)) {
-                asio::post(ioc_, std::bind(& Path::inMoveEvent, this, path_, std::move(name), true));
+                asio::post(ioc_, std::bind(& Path::inMoveEvent, this, path_, name, true));
             }
 
             if(st->mask & (IN_DELETE)) {
-                asio::post(ioc_, std::bind(& Path::inDeleteEvent, this, path_, std::move(name), false));
+                asio::post(ioc_, std::bind(& Path::inDeleteEvent, this, path_, name, false));
             }
 
             if(st->mask & (IN_DELETE_SELF)) {
-                asio::post(ioc_, std::bind(& Path::inDeleteEvent, this, path_, std::move(name), true));
+                asio::post(ioc_, std::bind(& Path::inDeleteEvent, this, path_, name, true));
             }
 
             beg += sizeof(struct inotify_event) + st->len;
