@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 
 Name:           inotify_watcher
-Version:        1.4
+Version:        1.5
 Release:        1%{?dist}
 Summary:        Inotify watcher service
 
