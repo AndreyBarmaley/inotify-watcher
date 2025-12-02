@@ -235,11 +235,11 @@ class ServiceWatcher : private boost::noncopyable {
                 spdlog::info("{}: remove job, id: {:016x}, path: {}", __FUNCTION__, (*it)->job_id(), (*it)->path().native());
                 jobs_.erase(it);
             }
+        }
 
-            if(IN_CLOSE_WRITE == event) {
-                // job add
-                loadFileJob(path);
-            }
+        if(IN_CLOSE_WRITE == event) {
+            // job add
+            loadFileJob(path);
         }
     }
 
