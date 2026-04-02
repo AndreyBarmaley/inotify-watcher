@@ -105,8 +105,9 @@ namespace Inotify {
         }
 
         // next async
-        asio::async_read(sd_, asio::buffer(buf_), asio::transfer_at_least(sizeof(struct inotify_event)),
-                         asio::bind_executor(strand_, std::bind(& Path::readNotify, this, asio::placeholders::error, asio::placeholders::bytes_transferred)));
+        sd_.async_read_some(asio::buffer(buf_),
+            asio::bind_executor(strand_, 
+                std::bind(& Path::readNotify, this, asio::placeholders::error, asio::placeholders::bytes_transferred)));
     }
     
     bool Path::changeFilterEvents(uint32_t events) {
@@ -153,8 +154,9 @@ namespace Inotify {
         sd_.assign(fd_);
         spdlog::info("target: {}", path.native());
 
-        asio::async_read(sd_, asio::buffer(buf_), asio::transfer_at_least(sizeof(struct inotify_event)),
-                         asio::bind_executor(strand_, std::bind(& Path::readNotify, this, asio::placeholders::error, asio::placeholders::bytes_transferred)));
+        sd_.async_read_some(asio::buffer(buf_),
+            asio::bind_executor(strand_,
+                std::bind(& Path::readNotify, this, asio::placeholders::error, asio::placeholders::bytes_transferred)));
     }
 
     Path::~Path() {
