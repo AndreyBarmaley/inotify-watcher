@@ -35,6 +35,7 @@ namespace Inotify {
 
       protected:
         boost::asio::io_context & ioc_;
+        std::shared_ptr<spdlog::logger> log_;
 
         void cancelAsync(void);
         bool parseEvents(const char* beg, const char* end);

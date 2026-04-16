@@ -25,7 +25,7 @@ namespace Inotify {
             auto st = (struct inotify_event*) beg;
 
             if(beg + sizeof(struct inotify_event) + st->len > end) {
-                spdlog::error("{}: read invalid, name overbuf, len: {}", __FUNCTION__,  st->len);
+                log_->error("{}: read invalid, name overbuf, len: {}", __FUNCTION__,  st->len);
                 return false;
             }
 
@@ -94,7 +94,7 @@ namespace Inotify {
         if(ec) {
             // ref: https://stackoverflow.com/questions/21046742/using-boostsystemerror-code-in-c
             if(ec.value() != system::errc::operation_canceled) {
-                spdlog::error("{}: {} error, code: {}, message: {}", __FUNCTION__, "read", ec.value(), ec.message());
+                log_->error("{}: {} error, code: {}, message: {}", __FUNCTION__, "read", ec.value(), ec.message());
             }
 
             return;
@@ -107,7 +107,7 @@ namespace Inotify {
         // next async
         sd_.async_read_some(asio::buffer(buf_),
             asio::bind_executor(strand_, 
-                std::bind(& Path::readNotify, this, asio::placeholders::error, asio::placeholders::bytes_transferred)));
+                std::bind(& Path::readNotify, this, std::placeholders::_1, std::placeholders::_2)));
     }
     
     bool Path::changeFilterEvents(uint32_t events) {
@@ -119,7 +119,7 @@ namespace Inotify {
             wd_ = inotify_add_watch(fd_, path_.c_str(), events);
 
             if(wd_ < 0) {
-                spdlog::error("{}: {} failed, error: {}, errno: {}", __FUNCTION__, "inotify_add_watch", strerror(errno), errno);
+                log_->error("{}: {} failed, error: {}, errno: {}", __FUNCTION__, "inotify_add_watch", strerror(errno), errno);
                 return false;
             }
             
@@ -131,15 +131,18 @@ namespace Inotify {
 
     Path::Path(asio::io_context & ioc, const std::filesystem::path & path, uint32_t events)
         : sd_(ioc), strand_(asio::make_strand(ioc)), path_(path), ioc_(ioc) {
+
+        log_ = spdlog::get("inotify_watcher");
+
         if(! std::filesystem::exists(path_)) {
-            spdlog::error("path not exists: {}", path_.c_str());
+            log_->error("path not exists: {}", path_.c_str());
             throw std::runtime_error(__FUNCTION__);
         }
 
         fd_ = inotify_init1(IN_NONBLOCK);
 
         if(fd_ < 0) {
-            spdlog::error("{}: {} failed, error: {}, errno: {}", __FUNCTION__, "inotify_init", strerror(errno), errno);
+            log_->error("{}: {} failed, error: {}, errno: {}", __FUNCTION__, "inotify_init", strerror(errno), errno);
             throw std::runtime_error(__FUNCTION__);
         }
 
@@ -147,16 +150,16 @@ namespace Inotify {
         wd_ = inotify_add_watch(fd_, path_.c_str(), events);
 
         if(wd_ < 0) {
-            spdlog::error("{}: {} failed, error: {}, errno: {}", __FUNCTION__, "inotify_add_watch", strerror(errno), errno);
+            log_->error("{}: {} failed, error: {}, errno: {}", __FUNCTION__, "inotify_add_watch", strerror(errno), errno);
             throw std::runtime_error(__FUNCTION__);
         }
 
         sd_.assign(fd_);
-        spdlog::info("target: {}", path.native());
+        log_->info("target: {}", path.native());
 
         sd_.async_read_some(asio::buffer(buf_),
             asio::bind_executor(strand_,
-                std::bind(& Path::readNotify, this, asio::placeholders::error, asio::placeholders::bytes_transferred)));
+                std::bind(& Path::readNotify, this, std::placeholders::_1, std::placeholders::_2)));
     }
 
     Path::~Path() {
